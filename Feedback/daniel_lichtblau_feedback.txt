@@ -1,0 +1,85 @@
+(Received 1 Nov 2017)
+
+Dear David Clark,
+
+I had a very recent (okay, today) need for color deconvolution code, in Mathematica, to use on images of H&E stained slides. I shamelessly cribbed yours from github. Since I had large images (dimensions exceeding 1300 x 1000 pixels) and over 300 of them, I ran into time and memory issues. So I made an effort to keep those at bay. I had only limited success with memory footprint reduction but was able to improve on speed. Maybe it could be improved further using parallelization, possibly with the Compile function. Eventually I gave up on that direction, from lack of patience mostly.
+
+I am dealing only with the one stain, and I only adjusted the code I needed. So I may have omitted some important functions and/or made errors that only show up when multiple stains are present. Also I probably took, and modified, some code I did not actually require, and if so, those changes are also untested. Anyway, you are welcome to use any or all of this, with or without attribution, in your git repo (I do advise that you test first though).
+
+Thank you for having taken the time and trouble to make your deconvolution code and examples available.
+
+Regards,
+Daniel Lichtblau
+
+
+---------------------
+
+convertToRgbTuples[img_] :=
+ Developer`ToPackedArray[ Flatten[ImageData[img, "Byte"], 1]]
+convertRgbToOD[trans_] := Module[
+   {recip},
+   recip = trans/255.;
+   Switch[recip, 255., 0.000000001, 0., 3.0, _, N[-Log10[recip]]]
+   ];
+odTable =
+  Developer`ToPackedArray[
+   Table[convertRgbToOD[trans], {trans, 0, 255}]];
+convertRgbTupleToOD[tuple_] :=
+  Developer`ToPackedArray[Compile`GetElement[odTable, tuple + 1]];
+(* convertRgbTupleArrayToOD[tuples_] :=
+ Developer`ToPackedArray[convertRgbTupleToOD /@ tuples] *)
+convertRgbTupleArrayToODC =
+  With[{odt = odTable},
+   Compile[{{tuples, _Integer, 2}}, Map[odt[[# + 1]] &, tuples, {1}]]];
+
+ruifrokOdMatrix = {{0.18, 0.2, 0.08}, {0.01, 0.13, 0.01}, {0.1, 0.21,
+    0.29}};
+convertOdToRgb[od_] := Power[10., -od];
+convertOdTupleToRgb[tuple_] := Power[10., -tuple];
+convertOdTupleArrayToRgb[tuples_] := Power[10., -tuples];
+normBasis[basis_] := Map[#/Norm[#] &, basis[[1 ;; 3]]]
+
+ruifrok = {{0.65, 0.7, 0.29}, {0.07, 0.99, 0.11}, {0.27, 0.57,
+    0.76}};
+normRuifrok = normBasis[ruifrok];
+invRuifrok = Inverse[normRuifrok];
+
+normalizeBasisRobustly[basis_] :=
+ Map[#/If[Norm[#] == 0., 1, Norm[#]] &, N@basis]
+
+ruifrokHnE = {{0.65, 0.7, 0.29}, {0.07, 0.99, 0.11}, {0, 0, 0}};
+normHnE = normalizeBasisRobustly[ruifrokHnE];
+
+buildTranslationMatrix[basis_] := Module[
+  {m},
+  m = ConstantArray[0., {3, 3}];
+  m[[1 ;; Length[basis]]] = basis;
+  m = normalizeBasisRobustly[m];
+  If[Norm[m[[2]]] == 0., m[[2]] = m[[1]]];
+  If[Norm[m[[3]]] == 0.,
+   m[[3, 1]] = Max[1.0 - m[[1, 1]]^2 - m[[2, 1]]^2, 0.00001];
+   m[[3, 2]] = Max[1.0 - m[[1, 2]]^2 - m[[2, 2]]^2, 0.00001];
+   m[[3, 3]] = Max[1.0 - m[[1, 3]]^2 - m[[2, 3]]^2, 0.00001];
+   m[[3]] = Sqrt[m[[3]]];
+   m = m /. 0 -> 0.001;
+   m[[3]] = m[[3]]/Norm[m[[3]]];
+   ];
+  m
+  ]
+
+ruifrokHnEInvBasis = Inverse[buildTranslationMatrix[ruifrokHnE]];
+
+deconvolveByRuifrok[img_, ruifrokHnEInvBasis_] := Module[
+  {odPixels, translationMatrix, deconvAbs, deconvTrans, outArray},
+  odPixels = convertToRgbTuples[img];
+  odPixels = convertRgbTupleArrayToODC[odPixels];
+  deconvAbs = odPixels.ruifrokHnEInvBasis;
+  deconvTrans = convertOdTupleArrayToRgb[deconvAbs];
+  outArray =
+   Partition[deconvTrans, Part[Dimensions[ImageData[img]], 2]];
+  Image[outArray, ColorSpace -> "RGB"]
+  ]
+
+Usage: deconvolveByRuifrok[myimage,ruifrokHnEInvBasis] (this is different from the original, where ruifrokHnE would be used in the second argument).
+
+

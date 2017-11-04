@@ -64,3 +64,7 @@ using the free Mathematica Viewer.
 The images used in the walkthroughs are in the "Images" directory. If
 you wish to run or alter the notebooks, you may have to revised the
 hardwired paths to the images included in the notebook files.
+
+## Update 3 Nov 2017 ##
+
+Received email feedback from Daniel Lichtbau. Created new `Feedback` directory and added his comments there.
